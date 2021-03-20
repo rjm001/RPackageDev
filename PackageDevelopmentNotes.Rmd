@@ -1,0 +1,510 @@
+---
+title: "Package Development in R"
+author: "Ryan Martin"
+date: "3/11/2021"
+output: html_document
+---
+
+
+
+This document contains notes from Jenny Bryan (https://jennybryan.org/about/) and Hadley Wickham's (http://hadley.nz/) book *R Packages* (https://r-pkgs.org/), as well as Jenny Bryan and Jim Hester's book *What They Forgot to Teach you About R* (https://rstats.wtf/) and a few blogs that Jenny Bryan has written. Overall, the sources provide invaluable information on efficient package development (and workflow practices in general) for data science in R. 
+
+*Aside: pkgdown package will automatically generate a website for your package!* Pretty cool.
+
+```{r}
+knitr::opts_chunk$set(eval=FALSE)
+
+```
+
+*Packages aren't necessarily about sharing code. They are about standardization and efficiency.
+
+# Aside: Workflow vs Product Notes
+- https://www.tidyverse.org/blog/2017/12/workflow-vs-script/
+- blog entry from Jenny Bryan
+
+Don't start code with setwd("my/path/only") or rm(list=ls()).
+
+Workflow constitutes:
+- The editor you use to write your R code
+- The name of your home directory
+- The R code you ran before lunch
+
+Product of workflow:
+- raw data
+- R code someone needs to run on your raw data to get your results
+
+Suggestion: 
+- Organize your work into a folder that holds all the relevant files. Can be an RStudio Project, but it's not required.
+- Make sure the top-level folder advertises itself as such This can be as simple as having an empty file named .here. Or, if you use Rstudio and/or Git, those both leave characteristic files behind that wil lget the job done.
+- Use the `here()` function in the `here` packageto build the path when you read or write a file. Create paths relative to the top-level directory
+
+Rstudio Projects:
+- All this is that when you create a Project named say `blah`, Rstudio leaves a file `blah.Rproj` i nthe folder.
+For objects that take a long time to create:
+- `saveRDS(my_precious, here("results", "my_precious.rds"))`
+- Now you can develop scripts to do downstream work that reload the precious object via
+- `my_precious <- readRDS(here("results", "my_precious.rds"))`
+
+- https://cran.r-project.org/web/packages/here/vignettes/rmarkdown.html
+
+```{r}
+library(pacman)
+p_load(here)
+here() # cool.
+setwd(here()) #or subdirectory with here("name","of","subdirectory")
+```
+Here works by looking for
+1. a file named `.here`
+2. a file named `foo.Proj`
+3. `DESCRIPTION` file for an R package
+4. `remake` project? (remake.yml)
+5. `projectile` project? (file named `.projectile`)?
+6. `.git` or `.svn` file?
+
+Note, you can create 
+
+# Chapter 1
+
+Put
+- R code in folder `R/`
+- tests in `tests/`
+- data in `data/`
+
+Philosophy: "anything that can be automated should be automated." This is realised primarily through the `devtools` metapackage. The most commonly used package of this metapackabe is `usethis` package.
+- Overview:
+  - Chapter 2 is the development of a small toy package
+  - Chapter 3 how to prepare your system for package development; includes suggestions on optional setup
+  - Chapter 4 explains package structure
+  - Chapter 5 goes over core workflows that come up repeatedly for package developers
+  - Chapters 7-17 go through package components
+  - Chapters 18-20 go over sharing with others
+
+ Notes from https://r-pkgs.org
+ 
+# Chapter 2
+- https://r-pkgs.org/whole-game.html
+
+*We make a small toy package*
+
+```{r}
+library(pacman)
+p_load(devtools, tidyverse, fs, here) # fs is for filesystem work
+packageVersion("devtools")
+
+```
+
+Features:
+- functions to address a specific need
+- access to established workflows for installation, getting help and checking basic quality
+- version control and an open development process
+- documentation for individual functions via roxygen2
+- unit testing with testthat
+- documentation for hte package as a whole via an *executable* README.rmd.
+
+*Note, for a proper package for factor handling, please see `forcats`*
+
+
+```{r}
+# use here in this!
+create_package(here("..","FooFactors"))
+here("..") # this goes one level up
+```
+ 
+ Running `create_package(here())` (or anywhere) works something like the command `git init`. It creates a handful of files and subdirectories. In particular, if you are in folder "foo", it creates a file foo.Rproj, .Rproj.user, .Rbuildignore, NAMESPACE, and DESCRIPTION. NAMESPACE is edited by roxygen2. If you read the contents of it, it tells you not to edit it by hand.
+ 
+- Note that .Rbuildignore lists the files that we need to have around but that should not be included when building the R package from source.
+- .Rproj.user is a directory used internally by Rstudio.
+- .gitignore *anticipates* Git usage and ignores some standard behind-the-scenes files created by R and Rstudio. It's fine even if you don't plan to use Git.
+- DESCRIPTION is for metadata about your package. We'll edit this by hand
+- NAMESPACE declares the functions your package exports for external use and the external functions your package imports from other packages.
+- The `R/` directory is the "business end" of your package
+- `foofactors.Rproj` signals to Rstudio that it's a project. Even if you don't use Rstudio, it's harmless. However, you can suppress its creation by adding the argument "rstudio = FALSE" to your `create_package()` call.
+
+
+### 2.5 `use_git()`
+
+Now they make it a Git repository with `use_git()`. Note, I had already ran a `git init` command inside the folder, but it seemed that it was fine to add the `use_git()` command after. It creates a few more files than the standard git, in particular:
+
+- .Rhistory
+- .Rdata
+- .httr-oauth
+- .DS_Store
+
+### 2.7 `use_r()`
+
+We're going to put the function `fbind()` into a file `R/fbind.R`. In general, we will want to group similar functions into similar files. The command `use_r` creates and opens a script below `R/`. (so you don't have to navigate out of R in the command line and switch directories.) So, we'll just run `use_r("fbind")` and it will create a file in "R/fbind.R" And it suggests to create a test file using `use_test()`!!! Note that it opens it in vim for me as I do it from the command line (because vim is my default text editor.)
+
+
+The function looks like this:
+
+```{r}
+fbind <- function(a, b) {
+  factor(c(as.character(a), as.character(b)))
+}
+```
+
+### 2.8 `load_all()`
+
+In an ordinary file, we might source all the files by just running the file first or putting `source("R/fbind.R")` into our main script. However, for package development, we're going to use the more robust tool `load_all()`. So, just call it from the R Console in the root directory. Like so:
+
+```{r}
+(a <- factor(c("character", "hits", "your", "eyeballs")))
+(b <- factor(c("but", "integer", "where it", "counts")))
+c(a, b) # what we don't want, list of integers
+factor(c(as.character(a), as.character(b))) # what we do want when combining factors
+load_all()
+fbind(a,b) #looks good
+exists("fbind", where = globalenv(), inherits = FALSE) # FALSE!
+
+```
+ 
+Note that `load_all` just *simulates* the process of building, installing and attaching the foofactors package. It is much faster than actually building, installing and attaching the package.
+
+Don't forget to commit your changes from cmdline:
+
+```{bash, eval=FALSE}
+git add "R/fbind.R"
+git commit -m "created fbind.R"
+
+```
+
+
+### 2.9 `check()`
+
+Run `R CMD check <target>` in the shell for the gold-standard method for checking that an R package is in full working order. (If you are in the folder FooFactors, this can be done by executing `R CMD check .`. Otherwise, you have to specify its full path name or the relative path name to FooFactors folder.) `check()` from within the R session is a convenient shorthand. Note that check is quite verbose and it is optimized for interactive consumption. Be sure to read the output and deal with problems early and often. (This is something like building your latex output early and often to make sure you are on top of it.)
+
+Note that when I execute `R CMD check .` it gives me an error. It says that the required fields "Author" and "Maintainer" are missing. It creates a log in `FooFactors/..Rcheck/00check.log`. (Note that it is a double dot field! vs `FooFactors/../Rcheck/00check.log` which would navigate one directory up and does not exist!) In contrast, `check()` does not care at all about this issue. Instead, it gives me a warning that DESCRIPTION has a non-standard license and suggests some functions to create a standard license. It creates a note for my computer that its unable to verify current time. Also, `R CMD check .` is far less verbose at the command line. Note that check() will automatically remove empty directories! So, it removed the directory `FooFactors/man` on me, because it was empty. I will probably have to recreate that directory for myself later. The warning and note are viewable in the output by having a W and N next to them at the start of their lines, respectively.
+
+### 2.10 Edit `DESCRIPTION`
+ 
+We just manually edit this. Can do it in Rstudio or vim or whatever.
+
+### 2.11 Get a license
+
+- `use_mit_license("My Name")` and done.
+- can `cat LICENSE` and `cat DESCRIPTION` from shell to verify.
+
+
+### 2.12 Documentation
+
+To create a help file for your function fbind(), you need to create an `man/fbind.Rd` file for it. The file is written in an R-specific markup language that looks like LaTex. Fortunately, roxygen2 can help. It seems to be easiest to do with Rstudio, where you can insert the roxygen2 skeleton right into the `R/fbind.R` file with it. While in the file, put your cursor inside the `fbind` function and go to Code -> Insert roxygen skeleton. This will set it up. Modify the skeleton to look as follows:
+
+```{r}
+#' Bind two factors
+#'
+#' Create a new factor from two existing factors, where the new factor's levels
+#' are the union of the levels of the input factors.
+#'
+#' @param a factor
+#' @param b factor
+#'
+#' @return factor
+#' @export
+#' @examples
+#' fbind(iris$Species[c(1, 51, 101)], PlantGrowth$group[c(1, 11, 21)])
+```
+Note that we didn't put anything in front of `@export` yet and we added a description after the title without a prompt for description in the skeleton.
+
+Once you have the skeleton filled out as above, call `document()`. After you do this, you should be able to to preview your help file with `?fbind`. 
+
+```{r}
+p_load(roxygen2)
+document()
+```
+
+
+
+
+Note that `document()` also updates the NAMESPACE file, in addition to modifying the `man/fbind.Rd` file. The NAMESPACE file should now contain the following content:
+
+```{r}
+# Generated by roxygen2: do not edit by hand
+
+export(fbind)
+
+```
+The export command is what makes `fbind()` available to users who attack foofactors via `library(foofactors)`.
+
+
+
+### 2.14 install()
+
+Calling `install()` (from R) makes our (minimum viable) package available. After running this, you can note that `?fbind works
+
+
+### 2.15 use_testthat()
+
+Call `use_testthat()` from R in your root project directory to initialize the unit testing machinery for your package. It adds `Suggests: testthat` to `DESCRIPTION` creates the directory `tests/testthat/` and adds the script `tests/testthat.R`
+
+We still have to write the tests, though. We can use `use_test("fbind")` to open and create a test file at `tests/testthat/test-fbind.R.` Once you have executed `use_test("fbind")`, you will see the file test-fbind.R is pre-filled with the following example text:
+
+```{r}
+test_that("multiplication works", {
+    expect_equal(2 * 2, 4)
+  })
+```
+
+Replace this text with the following text:
+
+```{r}
+test_that("fbind() binds factor (or character)", {
+  x <- c("a", "b")
+  x_fact <- factor(x)
+  y <- c("c", "d")
+  z <- factor(c("a", "b", "c", "d"))
+
+  expect_identical(fbind(x, y), z)
+  expect_identical(fbind(x_fact, y), z)
+})
+
+```
+
+Note that our unit test is simply confirming that `fbind` returns sensible binding behavior for the characters "a", "b", "c", and "d".
+
+To run this interactively, attach the "testthat" package and use the function `load_all()` to load  your packages functions. To run this test (and all your package's tests) automatically, you can just run `test()`. This is good practice to do everytime you make changes to your package, to make sure you haven't broken anything with your updates. This returns a nice summary of the Fails, Warning, Skips and Passes of your files along with the execution time for each attempt. Very nice. Ctrl + Shift + T will run tests()
+
+Also, note that your tests will run *automatically* whenever you call `check().` Eventually, we will want to use the `covr` package to track what proportion of our package's source code is exercised by the tests. See chapter 12.
+
+### 2.16 use_package()
+
+To post your package to CRAN, you need to import functions from the namespace of other packages, even the ones that are by-default available on opening R, such as `stats::median()` and `utils::head()`. The `use_package()` function makes this easy. We will use some functions from `forcats` in our practice package, so we can execute
+
+```{r}
+use_package("forcats")
+
+```
+
+which adds the `forcats` package to the "Imports" section of Description (and nothing more). Now we will add another function to our package. Execute `use_r("fcount")` and fill the resulting R file with the following content (note the Roxygen skeleton is already there so we can call use_test("fcount") right away after too.)
+
+```{r}
+#' Make a sorted frequency table for a factor
+#'
+#' @param x factor
+#'
+#' @return A tibble
+#' @export
+#' @examples
+#' fcount(iris$Species)
+fcount <- function(x) {
+  forcats::fct_count(x, sort = TRUE)
+}
+```
+
+Note that we are using the forcats package in this function! This method of cross-package function calling is encouraged for our packages! Discussed more in chapter 13. Then 
+
+Finally, we will try out the new `fcount()` function by simulating package installation via `load_all`.
+
+```{r}
+load_all()
+fcount(iris$Species) #works, so add documents
+document()
+```
+
+### 2.17 use_github()
+
+It's a helper for the long-term. Easiest way is to setup your GitHub repo first. See https://happygitwithr.com/new-github-first.html and https://happygitwithr.com/existing-github-first.html. Alternatively, you can make the GitHub last following https://happygitwithr.com/existing-github-last.html with your command-line git project.
+
+
+### 2.18 use_readme_rmd()
+
+This initializes a basic executable README.Rmd ready for you to edit.
+
+```{r}
+use_readme_rmd()
+# rmarkdown::render("README.Rmd")  # to render; o/w git will not like
+  # actually, just need the second one and be sure to commit both
+devtools::build_readme() # to render the README! you also have to render the .md file too
+# trying to render from the button may result in a "no package called 'foofactors' error
+# so just render with the above code
+
+
+# add then commit both
+# e.g.
+# git add .
+# git commit -m "Updated Readme files"
+```
+
+Note that it will jump into the README.Rmd file after you make the above call if you execute from the terminal console. Note also that the `use_readme_rmd()` adds some lines to `.Rbuildignore` and creates a Git pre-commit hook to help you keep README.Rmd and README.md in sync.
+
+Code included in README.Rmd includes:
+1. Prompts where you can describe your package's purpose
+2. Provide code to install your package
+3. Prompt to show a bit of usage of your package.
+
+Good suggestion is to populate this stuff from the DESCRIPTION file and your test functions.
+
+A small note about git commits: on my current machine, despite Vim being the default editor for most things, Emacs is the default editor for Git. To exit emacs, use Ctrl-X, (save) then Ctrl-C. To switch to Vim as default for Git, can type the following in the command line `git config --global core.editor "vim"` *or* `export GIT_EDITOR=vim` (either one will work). Alternatively, to set vim system wide, execute both the following in the bash shell. (Most programs will respond to just the editor export but some use the *more correct* visual environment variable to infer editor choice.)
+```{bash}
+export VISUAL=vim
+export EDITOR="$VISUAL"
+```
+
+As one more choice, you can do `sudo update-alternatives --config editor`.
+
+### 2.19 The end: `check()` and `install()`
+
+Run `check()` to double check everything is working then `install()` to use it (locally).
+
+```{r}
+check()
+install()
+```
+
+# Chapter 3: System Setup
+
+- In late 2018, devtools was *consciously uncoupled* with most functionality moving into severn smaller packages.
+- if your just a user, attach devtools and think of it as the provider of your favorite functions for package development
+- for programmatic use (explain?), such as inside another package, developers should *not* depend on devtools, but should instead access funcitons via the package that is their primary home.
+- devtools should *rarely* appear in the role of `foo` in `foo::fcn()`. Instead, `foo` should be the package where `fcn()` is defined.
+- try to report bugs on teh package that is a function's primary home
+
+e.g.:
+```{r}
+# for interactive use
+library(devtools)
+load_all
+
+
+# for use inside an R package, the following is preferred:
+pkgload::load_all()
+```
+
+- The `usethis` package holds the functions that act on the files and folders in an R project. Most especially, for any project that is also an R package.
+- All functions in `usethis` are made available by devtools.
+- call `use_testthat()`
+- If it's an interactive session and package you want all the time, you can do the following n your .Rprofile setting
+
+```{r}
+if (interactive()) {
+  suppressMessages(require(devtools))
+}
+```
+
+- The function `use_devtools()` actually does this! (creating .Rprofile if necessary and put the code above into it.)
+- at the same time, it's a bad idea to attach packages in `.Rprofile` since it invites you to create R scripts taht don't reflect all of their dependencies.
+- following personal default for your preferred license is also possible:
+
+
+```{r}
+options(
+  usethis.full_name="Jane Doe",
+  usethis.description = list(
+    `Authors@R` = 'person("Jane", "Doe", email = "jane@example.com", role = c("aut", "cre"), 
+    comment = c(ORCID = "YOUR-ORCID-ID"))',
+    License = "MIT + file LICENSE",
+    Version = "0.0.0.9000"
+  ),
+  usethis.protocol  = "ssh"  
+)
+
+```
+
+- to install the development versions of devtools and usethis:
+```{r}
+devtools::install_github("r-lib/devtools")
+devtools::install_github("r-lib/usethis")
+
+```
+
+Special final notes.
+1. on Windows, package development from source requires an extra download of Rtools (which is *not* an R package): https://cran.r-project.org/bin/windows/Rtools/
+2. on macOS you need to install the Xcode command line tools. You have to register as an Apple developer (which is free) then in the shell run `xcode-select --install`
+3. install R and R dev tools: `sudo apt-get install r-base-dev`
+
+The following code checks your system is ready:
+
+```{r}
+library(devtools)
+has_devel()
+
+```
+
+# Chapter 4 Package Structure and State
+
+## 4.1 Package states
+
+Five states:
+1. source
+  - just a directory of files with a specific structure (described in chapter 2 and rest of book)
+  - can view on the web (cran) easily
+    - e.g.: forcats: https://cran.r-project.org/package=forcats
+    - e.g.: readxl: https://cran.r-project.org/package=readxl
+    - https://docs.r-hub.io/#cranatgh
+2. bundled
+  - source compressed into a single file
+  - for linux this is .tar.gz (by convention). .tar is a ball and .gz is zipped (by convention)
+  - platform-agnostic transportatoin-friendly intermediary between a source package and an installed package
+  - can make one from a package you're developing using `devtools::build()`. This calls `pkgbuild::build()` and ultimately `R CMD build`
+  - every CRAN package is available in bundled form via the "Package source" field of the individual landing pages.
+  - can unpack in the shell with `tar svf forcats_0.4.0.tar.gz` for example
+  - the main differences between source and bundle are:
+    a. all tests are dropped in binary packages (but still in bundle)
+    b. all things in .Rbuildignore only exist in source package. e.g. cran-commends.md and devtools.Rproj and NEWS.md
+    c. vignettes have been built, so rendered outputs like HTML appear in inst/doc/ and a vignette index appears in build/ directory
+3. binary
+  - All you can do for people without package development tools.
+  - it's a single file.
+  - it's platform specific:
+    - either Windows or for maxOS (Linux users are required to have tools to install from .tar.gz!)
+  - to build a binary, you need to build on the system you want to use it on. (Although for Linux, you can build a C binary (.exe file) for windows using the mingw compiler. Note that binaries are for compiled languages; vs, for example, interpreted languages like python which require running language engines on the platform to execute the files. The advantage of the interpreted languages is they work on any platform where the language engine can run. Although, apparently there is something called pyinstaller which can convert .py files into .exe files.)
+4. installed 
+5. in-memory
+
+- library() loads an installed package into memory
+- install.packages() and devtools::install_github() move a package from 1-3 into 4.
+
+### `.Rbuildignore`
+
+- each line of `.Rbuildignore` is a Perl-compatible regular expression that is matched (case insensitively) to the path to each file in the source package. If the regular expression matches, that file or directory is excluded.
+- *You have to anchor the regular expression to exclude a file or directory*
+  - e.g. to exclude directory "notes", use `^notes$`. If you only put "notes" in, it will match any file with notes in the name! which is probably not what you want! e.g. maybe some files like `R/notes.R` and `man/important-notes.R` and `data/endnotes.Rdata`, etc.
+  - can also do it with `usethis::use_build_ignore("notes")` which does the `^` and `$` escaping etc for you.
+  
+Non-exhaustive examples of what's included in `.Rbuildignore`:
+
+```{Pearl}
+^.*\.Rproj$         # Designates the directory as an RStudio Project
+^\.Rproj\.user$     # Used by RStudio for temporary files
+^README\.Rmd$       # An Rmd file used to generate README.md
+^LICENSE\.md$       # Full text of the license
+^cran-comments\.md$ # Comments for CRAN submission
+^\.travis\.yml$     # Used by Travis-CI for continuous integration testing
+^data-raw$          # Code used to create data included in the package
+^pkgdown$           # Resources used for the package website
+^_pkgdown\.yml$     # Configuration info for the package website
+^\.github$          # Contributing guidelines, CoC, issue templates, etc.
+```
+
+*Note, the comments above shouldn't be included and would break the code! (Although, comments in pearl are actually done with a # sign too.)
+
+
+  
+
+# Chapter 12 Testing
+
+*Goal of this chapter is to show you how to make formal testing easier using the testthat package.*
+
+Reason: when you return to your code after some time without it, you forget the informal tests you ran and can very easily break your code. The author started using automated tests because he discovered he was spending too much time re-fixing bugs that he'd already fixed before.
+
+Claim: formal, automated testing is 'unit testing'. (I had thought unit testing was just one kind of testing.) Unit testing is just testing (x,y) pairs. If code has side effects, it's mroe complicated.
+
+Note, unit testing in R is a little different since R is, at its heart, a functional programming language more than an OOP language. e.g. because R's main OO systems (S3 and S4) are based on generic functions--methods belong to functions not classes--testing aproaches built around objects and methods don't make much sense.
+
+
+## 12.2 Test Structure
+
+```{r}
+
+library(pacman)
+p_load("testthat")
+context("String length")
+p_load(stringr)
+
+
+```
+
+
+
+
+
+```
